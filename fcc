@@ -1,0 +1,178 @@
+#!/bin/bash
+
+#FCC Database Lookup Offline
+#11JULY2025 km4ack
+#12JULY2025 last edit
+
+#script will download the FCC amateur database of call signs
+#allowing to user to access the info offline
+
+#Script can be automated using crontab to download the database
+#Hint: 0 6 * * * /path/to/file/fcc download 
+
+#version 2 changes:
+#add logging to mylog.txt
+#add verbose option. usage: fcc <call sign> -v
+#add logic if call not found
+
+CALL=$1
+dir=$HOME/.local/share/fcc_database/
+dl=${dir}dl_date
+AM=${dir}AM.dat
+EN=${dir}EN.dat
+today=$(date +%d-%b-%Y)
+mylog=$HOME/Documents/mylog.txt
+version=2.0
+
+declare -u CALL=${CALL}
+
+if [ -f ${dl} ]; then
+  source ${dl}
+fi
+
+PURGE(){
+  if [ -d ${dir}old ]; then
+    echo "purging old DB files"
+    rm -rf ${dir}old
+    echo "purge complete"
+    exit
+  else
+    echo "no old db files found"
+    exit
+  fi
+}
+
+DOWNLOAD(){
+  mkdir -p ${dir}
+  echo "downloading"
+  cd ${dir}
+  mkdir -p old
+  mv * ./old/
+  wget -U "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1)" https://data.fcc.gov/download/pub/uls/complete/l_amat.zip
+  echo "extracting contents from zip file"
+  unzip l_amat.zip
+  rm l_amat.zip
+  rm CO.dat counts HD.dat HS.dat LA.dat SC.dat SF.dat
+  echo last_download=${today} > ${dl}
+  echo `date` " FCC Download" >> ${mylog}
+  echo;echo
+  echo "usage:"
+  echo "fcc <call sign>     #get data for <call sign>"
+  echo "fcc download        #download latest database"     
+  echo "fcc purge           #purge old archives"
+  exit
+}
+
+OUTPUT(){
+  if [ -z "${en_result}" ] && [ -z "${am_result}" ]; then
+    clear;echo
+    echo "-------------------------------"
+    echo "FCC Offline Database Tool v${version}"
+    echo "Database downloaded ${last_download}"
+    echo "-------------------------------"
+    echo;echo "Call not found";echo
+    read -p "Call sign or q to quit: " CALL
+
+    if [ "${CALL}" = "q" ] || [ ${CALL} = "Q" ]; then
+      exit
+    fi
+    LOOKUP
+  else
+    clear;echo
+    echo "-------------------------------"
+    echo "FCC Offline Database Tool v${version}"
+    echo "Database downloaded ${last_download}"
+    echo "-------------------------------"
+    echo ${CALL}
+    echo "${name}"
+    echo "${full_class} class"
+    echo ${street}
+    echo "${city}, ${state} ${zip}"
+    if [ ${CALL} = "KM4ACK" ]; then
+      echo "https://www.youtube.com/@KM4ACK"
+    fi
+    echo
+    read -p "Call sign or (q)uit (v)erbose: " ans
+
+    if [ "${ans}" = "q" ] || [ ${ans} = "Q" ]; then
+      exit
+    fi
+
+    if [ "${ans}" = "v" ] || [ ${ans} = "V" ]; then
+      VERBOSE
+    else
+      CALL=${ans}
+    fi
+    LOOKUP
+  fi
+}
+
+LOOKUP(){
+  am_result=$(grep -iw ${CALL} ${AM} | tail -1)
+  en_result=$(grep -iw ${CALL} ${EN} | tail -1)
+  class=$(echo ${am_result} | awk -F "|" '{print $6}')
+  case ${class} in
+    T)
+      full_class=Technician;;
+    G)
+      full_class=General;;
+    E)
+      full_class=Extra;;
+    *)
+      full_class=unknown;;
+  esac
+  name=$(echo ${en_result} | awk -F "|" '{print $8}')
+  street=$(echo ${en_result} | awk -F "|" '{print $16}')
+  city=$(echo ${en_result} | awk -F "|" '{print $17}')
+  state=$(echo ${en_result} | awk -F "|" '{print $18}')
+  zip=$(echo ${en_result} | awk -F "|" '{print $19}')
+  OUTPUT
+}
+
+VERBOSE(){
+  clear;echo
+  echo "-------------------------------"
+  echo "FCC Offline Database Tool v${version}"
+  echo "Database downloaded ${last_download}"
+  echo "-------------------------------"
+  echo "***VERBOSE RESULTS***"
+  echo "---------------------"
+  grep -iw ${CALL} ${AM}
+  echo "----------------------------------------"
+  grep -iw ${CALL} ${EN}
+  echo;echo "END OF RESULTS"
+  echo;read -n 1 -s -r -p "Press any key to continue"
+  LOOKUP
+}
+
+if [ -z $1 ]; then
+  echo "usage:"
+  echo "fcc <call sign>     #get data for <call sign>"
+  echo "fcc download        #download latest database"     
+  echo "fcc purge           #purge old archives"
+  exit 1
+fi
+
+if [ $1 = "download" ]; then
+  DOWNLOAD
+fi
+
+if [ $1 = "purge" ]; then
+  PURGE
+fi
+
+if [ -z $2 ]; then
+  echo "fetching data"
+else
+  if [ $2 = "-v" ]; then
+    VERBOSE
+  fi
+fi
+
+if [ ! -d ${dir} ]; then
+  echo "ERROR::Database not found!"
+  echo "Download FCC database with:"
+  echo "fcc download"
+  exit 1
+fi
+LOOKUP
